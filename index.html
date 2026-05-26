@@ -349,6 +349,99 @@
       border-top: 1.5px dashed #F0E0D0;
       margin: 20px 0;
     }
+
+    /* ========== 検索・フィルターエリア ========== */
+    .search-filter-area {
+      background: white;
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    /* 絞り込みプルダウン */
+    .filter-select {
+      flex: 1;
+      min-width: 148px;
+      padding: 9px 32px 9px 12px; /* 右側に矢印アイコン分のスペース */
+      border: 2px solid #EEE;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      font-family: inherit;
+      color: #555;
+      background-color: #FAFAFA;
+      /* ブラウザ標準の矢印を隠してオリジナル矢印を表示 */
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7'%3E%3Cpath d='M1 1l4.5 4.5L10 1' stroke='%23FFB347' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .filter-select:focus {
+      border-color: #FFB347;
+      box-shadow: 0 0 0 3px rgba(255,179,71,0.15);
+    }
+
+    /* キーワード検索テキストボックス（虫眼鏡アイコン付き） */
+    .search-input-wrap {
+      flex: 1;
+      min-width: 140px;
+      position: relative;
+    }
+    .search-input-wrap::before {
+      /* 虫眼鏡アイコンを疑似要素で描く */
+      content: '';
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23CCC' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat center / contain;
+      pointer-events: none;
+    }
+    .search-input {
+      width: 100%;
+      padding: 9px 12px 9px 32px; /* 左側に虫眼鏡分のスペース */
+      border: 2px solid #EEE;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      font-family: inherit;
+      color: #555;
+      background: #FAFAFA;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .search-input:focus {
+      border-color: #FFB347;
+      box-shadow: 0 0 0 3px rgba(255,179,71,0.15);
+      background-color: white;
+    }
+    /* 入力中はプレースホルダーを少し薄く */
+    .search-input::placeholder { color: #CCC; }
+
+    /* フィルター結果の件数表示（エリア下部に右寄せ表示） */
+    .filter-result-info {
+      width: 100%;
+      font-size: 0.75rem;
+      color: #CCC;
+      text-align: right;
+      padding-top: 2px;
+      /* まだ何もない時は非表示 */
+      min-height: 1em;
+    }
+    /* 絞り込み中はオレンジ色で強調 */
+    .filter-result-info.has-filter {
+      color: #FF8C69;
+      font-weight: 600;
+    }
   </style>
 
   <!-- ========== Firebase SDK（CDN経由で読み込む） ==========
@@ -583,7 +676,37 @@
      タブ③：一覧
 =========================== -->
 <div id="tab-list" class="tab-content">
+
+  <!-- ===== 検索・フィルターエリア ===== -->
+  <div class="search-filter-area">
+
+    <!-- ① 条件で絞り込むプルダウン -->
+    <select class="filter-select" id="filter-select" onchange="applyFilters()">
+      <option value="all">📋 すべての履歴</option>
+      <option value="vitality-bad">😰 元気がない日</option>
+      <option value="poop-soft">💩 軟便・下痢の日</option>
+      <option value="other-symptom">📝 その他の症状がある日</option>
+    </select>
+
+    <!-- ② キーワード検索テキストボックス -->
+    <div class="search-input-wrap">
+      <input
+        type="text"
+        class="search-input"
+        id="search-input"
+        placeholder="キーワードを入力..."
+        oninput="applyFilters()"
+        autocomplete="off"
+      >
+    </div>
+
+    <!-- 絞り込み結果の件数（「10件中 3件 表示中」など） -->
+    <div class="filter-result-info" id="filter-result-info"></div>
+
+  </div>
+  <!-- ===== 記録カードの表示エリア ===== -->
   <div id="record-list-container"></div>
+
 </div>
 
 <!-- ===== トースト通知 ===== -->
@@ -920,7 +1043,14 @@ function resetForm() {
 }
 
 /* ==================================================
-   記録一覧の表示（Firestore からデータを取得して描画）
+   全記録のキャッシュ（Firestoreから取得後ここに保存する）
+   絞り込み・検索はこのキャッシュに対して行うため、
+   フィルター操作のたびにFirestoreへ通信しなくて済む
+================================================== */
+let allRecords = [];
+
+/* ==================================================
+   記録一覧の表示（Firestore からデータを取得してキャッシュ→描画）
 ================================================== */
 async function renderRecordList() {
   const container = document.getElementById('record-list-container');
@@ -931,82 +1061,11 @@ async function renderRecordList() {
     // 日付の新しい順に Firestore から全記録を取得
     const snapshot = await db.collection(RECORDS_COL).orderBy('date', 'desc').get();
 
-    if (snapshot.empty) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <div class="icon">🐾</div>
-          <p>まだ記録がありません</p>
-          <p class="hint">「記録追加」タブから記録してみましょう！</p>
-        </div>`;
-      return;
-    }
+    // 取得データをキャッシュに保存（絞り込み・検索で繰り返し使う）
+    allRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    container.innerHTML = snapshot.docs.map(doc => {
-      // doc.id が Firestore の自動生成ドキュメントID（削除時に使う）
-      const r = { id: doc.id, ...doc.data() };
-
-      // うんちの表示テキストと CSS クラスを決める
-      let poopDisplay = '';
-      if (r.poop === 'なし') {
-        poopDisplay = 'なし';
-      } else if (r.poop === 'あり') {
-        if (r.poopCondition) {
-          let cls = '';
-          if (r.poopCondition.includes('良好'))        cls = 'poop-good';
-          else if (r.poopCondition.includes('軟便'))    cls = 'poop-soft';
-          else if (r.poopCondition.includes('コロコロ')) cls = 'poop-hard';
-          poopDisplay = `あり（<span class="${cls}">${escHtml(r.poopCondition)}</span>）`;
-        } else {
-          poopDisplay = 'あり';
-        }
-      }
-
-      const hasContent = r.weight || r.meal || r.vitality || r.poop
-                      || (r.symptoms && r.symptoms.length > 0)
-                      || r.photo || r.memo;
-
-      return `
-      <div class="record-item" id="rec-${r.id}">
-        <div class="record-header">
-          <div class="record-date">📅 ${formatDate(r.date)}</div>
-          <button class="btn btn-danger" onclick="deleteRecord('${r.id}')">🗑️ 削除</button>
-        </div>
-        <div class="record-fields">
-          ${r.vitality ? `
-            <div class="record-field">
-              <span class="record-field-label">😊 元気度</span>
-              <span class="record-field-value">${escHtml(r.vitality)}${r.vitalityTime ? `（${escHtml(r.vitalityTime)}）` : ''}</span>
-            </div>` : ''}
-          ${r.weight != null ? `
-            <div class="record-field">
-              <span class="record-field-label">⚖️ 体重</span>
-              <span class="record-field-value">${r.weight} kg</span>
-            </div>` : ''}
-          ${r.meal ? `
-            <div class="record-field">
-              <span class="record-field-label">🍽️ 食事</span>
-              <span class="record-field-value">${escHtml(r.meal)}</span>
-            </div>` : ''}
-          ${r.poop ? `
-            <div class="record-field">
-              <span class="record-field-label">💩 うんち</span>
-              <span class="record-field-value">${poopDisplay}</span>
-            </div>` : ''}
-          ${r.symptoms && r.symptoms.length > 0 ? `
-            <div class="record-field">
-              <span class="record-field-label">⚠️ 症状</span>
-              <span class="record-field-value">${r.symptoms.map(s => escHtml(s)).join('、')}</span>
-            </div>` : ''}
-          ${r.memo ? `
-            <div class="record-field">
-              <span class="record-field-label">📝 メモ</span>
-              <span class="record-field-value">${escHtml(r.memo)}</span>
-            </div>` : ''}
-          ${r.photo ? `<img src="${r.photo}" class="record-photo" alt="写真">` : ''}
-          ${!hasContent ? '<div style="color:#CCC;font-size:0.82rem">（内容なし）</div>' : ''}
-        </div>
-      </div>`;
-    }).join('');
+    // 現在のフィルター・検索条件を適用して描画
+    applyFilters();
 
   } catch (err) {
     console.error('記録取得エラー:', err);
@@ -1018,13 +1077,193 @@ async function renderRecordList() {
   }
 }
 
-/* 記録を削除する（Firestore のドキュメントIDで特定して削除） */
+/* ==================================================
+   絞り込み・検索を適用して表示を更新する
+   ・プルダウン（filter-select）の条件
+   ・キーワード（search-input）の文字
+   の両方を掛け合わせて絞り込む
+================================================== */
+function applyFilters() {
+  // 現在のフィルター値とキーワードを取得
+  const filterVal = document.getElementById('filter-select')?.value  || 'all';
+  const keyword   = (document.getElementById('search-input')?.value  || '').trim().toLowerCase();
+
+  // キャッシュ全件から絞り込みをスタート
+  let filtered = allRecords;
+
+  // ① プルダウンのフィルター条件を適用
+  if (filterVal === 'vitality-bad') {
+    // 「😰 元気がない」が選択されている記録だけ残す
+    filtered = filtered.filter(r => r.vitality === '😰 元気がない');
+
+  } else if (filterVal === 'poop-soft') {
+    // うんちの状態が「軟便」を含む記録だけ残す
+    filtered = filtered.filter(r =>
+      r.poopCondition && r.poopCondition.includes('軟便')
+    );
+
+  } else if (filterVal === 'other-symptom') {
+    // 症状に「その他：」で始まるものが含まれる記録だけ残す
+    filtered = filtered.filter(r =>
+      Array.isArray(r.symptoms) && r.symptoms.some(s => s.startsWith('その他：'))
+    );
+  }
+  // filterVal === 'all' のときは絞り込まない（全件表示）
+
+  // ② キーワード検索をさらに掛け合わせる（スペース区切りでAND検索）
+  if (keyword) {
+    // 半角スペースで区切って複数キーワードに対応
+    const words = keyword.split(/\s+/).filter(w => w.length > 0);
+
+    filtered = filtered.filter(r => {
+      // 各レコードの全フィールドをまとめて1つの文字列にする（検索対象）
+      const haystack = [
+        r.date          || '',
+        r.meal          || '',
+        r.vitality      || '',
+        r.vitalityTime  || '',
+        r.poop          || '',
+        r.poopCondition || '',
+        r.memo          || '',
+        ...(Array.isArray(r.symptoms) ? r.symptoms : [])
+      ].join(' ').toLowerCase();
+
+      // すべてのキーワードが含まれていれば合格（AND検索）
+      return words.every(w => haystack.includes(w));
+    });
+  }
+
+  // ③ 件数インジケーターを更新
+  const infoEl      = document.getElementById('filter-result-info');
+  const total       = allRecords.length;
+  const shown       = filtered.length;
+  const isFiltering = filterVal !== 'all' || keyword !== '';
+
+  if (infoEl) {
+    if (total === 0) {
+      infoEl.textContent = '';
+      infoEl.className   = 'filter-result-info';
+    } else if (isFiltering) {
+      infoEl.textContent = `${total}件中 ${shown}件 表示中`;
+      infoEl.className   = 'filter-result-info has-filter';
+    } else {
+      infoEl.textContent = `全 ${total} 件`;
+      infoEl.className   = 'filter-result-info';
+    }
+  }
+
+  // ④ 絞り込み結果を画面に描画
+  renderFilteredList(filtered, isFiltering);
+}
+
+/* ==================================================
+   絞り込み済みレコード配列を受け取って画面に描画する
+   （renderRecordList から切り出した描画処理）
+================================================== */
+function renderFilteredList(records, isFiltering) {
+  const container = document.getElementById('record-list-container');
+
+  // --- 0件の場合のメッセージ ---
+  if (records.length === 0) {
+    if (allRecords.length === 0) {
+      // Firestore にそもそもデータがない
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🐾</div>
+          <p>まだ記録がありません</p>
+          <p class="hint">「記録追加」タブから記録してみましょう！</p>
+        </div>`;
+    } else {
+      // フィルター・検索で絞り込んだ結果が0件
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🔍</div>
+          <p>条件に合う記録が見つかりません</p>
+          <p class="hint">絞り込み条件やキーワードを変えてみてください</p>
+        </div>`;
+    }
+    return;
+  }
+
+  // --- 記録カードを描画 ---
+  container.innerHTML = records.map(r => {
+
+    // うんちの表示テキストと CSS クラスを決める
+    let poopDisplay = '';
+    if (r.poop === 'なし') {
+      poopDisplay = 'なし';
+    } else if (r.poop === 'あり') {
+      if (r.poopCondition) {
+        let cls = '';
+        if (r.poopCondition.includes('良好'))        cls = 'poop-good';
+        else if (r.poopCondition.includes('軟便'))    cls = 'poop-soft';
+        else if (r.poopCondition.includes('コロコロ')) cls = 'poop-hard';
+        poopDisplay = `あり（<span class="${cls}">${escHtml(r.poopCondition)}</span>）`;
+      } else {
+        poopDisplay = 'あり';
+      }
+    }
+
+    const hasContent = r.weight || r.meal || r.vitality || r.poop
+                    || (r.symptoms && r.symptoms.length > 0)
+                    || r.photo || r.memo;
+
+    return `
+    <div class="record-item" id="rec-${r.id}">
+      <div class="record-header">
+        <div class="record-date">📅 ${formatDate(r.date)}</div>
+        <button class="btn btn-danger" onclick="deleteRecord('${r.id}')">🗑️ 削除</button>
+      </div>
+      <div class="record-fields">
+        ${r.vitality ? `
+          <div class="record-field">
+            <span class="record-field-label">😊 元気度</span>
+            <span class="record-field-value">${escHtml(r.vitality)}${r.vitalityTime ? `（${escHtml(r.vitalityTime)}）` : ''}</span>
+          </div>` : ''}
+        ${r.weight != null ? `
+          <div class="record-field">
+            <span class="record-field-label">⚖️ 体重</span>
+            <span class="record-field-value">${r.weight} kg</span>
+          </div>` : ''}
+        ${r.meal ? `
+          <div class="record-field">
+            <span class="record-field-label">🍽️ 食事</span>
+            <span class="record-field-value">${escHtml(r.meal)}</span>
+          </div>` : ''}
+        ${r.poop ? `
+          <div class="record-field">
+            <span class="record-field-label">💩 うんち</span>
+            <span class="record-field-value">${poopDisplay}</span>
+          </div>` : ''}
+        ${r.symptoms && r.symptoms.length > 0 ? `
+          <div class="record-field">
+            <span class="record-field-label">⚠️ 症状</span>
+            <span class="record-field-value">${r.symptoms.map(s => escHtml(s)).join('、')}</span>
+          </div>` : ''}
+        ${r.memo ? `
+          <div class="record-field">
+            <span class="record-field-label">📝 メモ</span>
+            <span class="record-field-value">${escHtml(r.memo)}</span>
+          </div>` : ''}
+        ${r.photo ? `<img src="${r.photo}" class="record-photo" alt="写真">` : ''}
+        ${!hasContent ? '<div style="color:#CCC;font-size:0.82rem">（内容なし）</div>' : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* 記録を削除する（Firestoreから削除 → キャッシュを更新 → 再描画） */
 async function deleteRecord(docId) {
   if (!confirm('この記録を削除しますか？\n（削除したら元に戻せません）')) return;
   try {
-    // ドキュメントID を使って Firestore から削除
+    // Firestore から該当ドキュメントを削除
     await db.collection(RECORDS_COL).doc(docId).delete();
-    renderRecordList();
+
+    // キャッシュからも削除して Firestore への再通信を避ける
+    allRecords = allRecords.filter(r => r.id !== docId);
+
+    // 現在のフィルター条件のまま再描画（絞り込み状態を維持）
+    applyFilters();
     await refreshStats();
     showToast('🗑️ 削除しました');
   } catch (err) {
